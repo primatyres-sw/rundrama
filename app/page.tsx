@@ -10,7 +10,9 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Volume2,
   Wifi,
+  WifiOff,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -51,6 +53,7 @@ export default function Home() {
   const [stravaMessage, setStravaMessage] = useState("");
   const [stravaMessageIsError, setStravaMessageIsError] = useState(false);
   const scheduledTimeouts = useRef<number[]>([]);
+  const didBootstrapRef = useRef(false);
 
   const unlockedCount = useMemo(
     () => EPISODES.filter((episode) => isEpisodeUnlocked(distanceKm, episode)).length,
@@ -111,6 +114,17 @@ export default function Home() {
     // in the top-level window for the athlete to approve it.
     window.location.href = "/api/strava/auth";
   }, [connectionState]);
+
+  /** Stage reset: drops the session so the OAuth flow can be shown live. */
+  const disconnectStrava = useCallback(async () => {
+    await fetch("/api/strava/disconnect", { cache: "no-store", method: "POST" }).catch(
+      () => undefined,
+    );
+
+    setConnectionState("idle");
+    setStravaMessage("Strava unlinked - ready to demo the connect flow");
+    setStravaMessageIsError(false);
+  }, []);
 
   const addOneKm = useCallback(() => {
     setDistanceWithUnlockFeedback(distanceKm + 1);
@@ -240,7 +254,17 @@ export default function Home() {
 
   // On load: surface the result of the OAuth redirect, then ask the server
   // whether a Strava session cookie is already in place.
+  //
+  // Guarded against React's development double-invoke: the routine strips
+  // ?strava=connected off the URL, so a second pass would no longer see the
+  // marker and would disconnect the session that was just established.
   useEffect(() => {
+    if (didBootstrapRef.current) {
+      return;
+    }
+
+    didBootstrapRef.current = true;
+
     const params = new URLSearchParams(window.location.search);
     const outcome = params.get("strava");
 
@@ -369,25 +393,36 @@ export default function Home() {
               </button>
             </div>
 
-            <button
-              className="pixel-button mt-3 flex h-11 items-center justify-center gap-2 bg-[#4fc35b] px-3 text-xs font-black uppercase text-white disabled:opacity-80"
-              disabled={connectionState !== "idle"}
-              onClick={connectStrava}
-              type="button"
-            >
-              {connectionState === "connecting" ? (
-                <RefreshCw className="h-4 w-4 animate-spin" />
-              ) : connectionState === "connected" ? (
-                <Check className="h-4 w-4" />
-              ) : (
-                <Wifi className="h-4 w-4" />
-              )}
-              {connectionState === "connecting"
-                ? "Connecting..."
-                : connectionState === "connected"
-                  ? "Linked ✓"
-                  : "Link Strava"}
-            </button>
+            {connectionState === "connected" ? (
+              <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                <span className="pixel-panel flex h-11 items-center justify-center gap-2 bg-[#4fc35b] px-3 text-xs font-black uppercase text-white">
+                  <Check className="h-4 w-4" />
+                  Linked ✓
+                </span>
+                <button
+                  className="pixel-button flex h-11 items-center justify-center gap-2 bg-white px-3 text-xs font-black uppercase text-[#171312]"
+                  onClick={disconnectStrava}
+                  type="button"
+                >
+                  <WifiOff className="h-4 w-4" />
+                  Unlink
+                </button>
+              </div>
+            ) : (
+              <button
+                className="pixel-button mt-3 flex h-11 w-full items-center justify-center gap-2 bg-[#4fc35b] px-3 text-xs font-black uppercase text-white disabled:opacity-80"
+                disabled={connectionState === "connecting"}
+                onClick={connectStrava}
+                type="button"
+              >
+                {connectionState === "connecting" ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Wifi className="h-4 w-4" />
+                )}
+                {connectionState === "connecting" ? "Connecting..." : "Link Strava"}
+              </button>
+            )}
 
             {stravaMessage ? (
               <p
@@ -597,7 +632,41 @@ function Player({
   onClose: () => void;
 }) {
   const dragY = useMotionValue(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [needsUnmute, setNeedsUnmute] = useState(false);
   const activeEpisode = EPISODES[activeIndex];
+
+  // Opening an episode is a click, which is the gesture desktop browsers want
+  // before they allow sound. iOS is stricter and can still refuse, so fall back
+  // to muted playback rather than letting the episode fail to start at all.
+  useEffect(() => {
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    video.muted = false;
+    setNeedsUnmute(false);
+
+    video.play().catch(() => {
+      video.muted = true;
+      setNeedsUnmute(true);
+      video.play().catch(() => undefined);
+    });
+  }, [activeEpisode.id]);
+
+  const enableSound = useCallback(() => {
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    video.muted = false;
+    setNeedsUnmute(false);
+    void video.play().catch(() => undefined);
+  }, []);
 
   return (
     <motion.section
@@ -635,9 +704,9 @@ function Player({
               className="h-full w-full object-cover"
               controls
               loop
-              muted
               playsInline
               preload="none"
+              ref={videoRef}
               src={activeEpisode.videoSrc}
             />
           </motion.div>
@@ -673,6 +742,17 @@ function Player({
             </span>
           </div>
         </div>
+
+        {needsUnmute ? (
+          <button
+            className="pixel-button absolute bottom-16 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 bg-[#ffe96b] px-3 py-2 text-[10px] font-black uppercase text-[#171312]"
+            onClick={enableSound}
+            type="button"
+          >
+            <Volume2 className="h-4 w-4" />
+            Tap for sound
+          </button>
+        ) : null}
 
         <AnimatePresence>
           {gateMessage ? (
