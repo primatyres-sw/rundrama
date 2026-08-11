@@ -35,7 +35,7 @@
   - ✅ 6.3 Tokens in an httpOnly cookie — no database
   - ✅ 6.4 `Unlink` button so the OAuth flow can be re-demoed on stage
   - ✅ 6.5 **Removed the `+1 km` button** — the demo now connects for real
-  - ⬜ 6.6 Deploy to Vercel with a second Strava app for the production domain
+  - ✅ 6.6 Deployed to **https://rundrama.vercel.app** with a second Strava app for the production domain
 
 ## Principles behind this plan
 
@@ -151,7 +151,7 @@ npm i framer-motion lucide-react
 
 | # | Task |
 |---|---|
-| 5.1 | Deploy to Vercel + generate a **QR code** for the room |
+| 5.1 | ✅ Deployed — https://rundrama.vercel.app · ⬜ generate a **QR code** for the room |
 | 5.2 | Rehearse the two-act demo with a timer — target **under 3 minutes** |
 | 5.3 | **Record a backup demo video** in case the Wi-Fi dies |
 | 5.4 | Test several devices hitting it simultaneously |

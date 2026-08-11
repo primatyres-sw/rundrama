@@ -2,6 +2,7 @@
 
 > **Run to unlock the story.** A mobile web prototype that turns running distance into the key that unlocks a short-form drama series generated entirely with AI.
 
+🔗 Live: **https://rundrama.vercel.app**
 📄 Phased development plan: [plan.md](plan.md)
 
 ---
