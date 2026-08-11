@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+:root {
+  --background: #7fd8ff;
+  --foreground: #171312;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: Arial, Helvetica, sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.pixel-font {
+  font-family: "Courier New", "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0;
+}
+
+.pixel-shell {
+  background:
+    linear-gradient(180deg, #73d7ff 0%, #aeefff 44%, #f7dc72 44%, #f7dc72 52%, #69c847 52%, #3b9d3c 100%);
+  image-rendering: pixelated;
+}
+
+.pixel-panel {
+  border: 4px solid #171312;
+  box-shadow:
+    0 0 0 4px #ffffff,
+    8px 8px 0 #171312;
+}
+
+.pixel-button {
+  border: 4px solid #171312;
+  box-shadow: 5px 5px 0 #171312;
+  transform: translate(0, 0);
+}
+
+.pixel-button:active {
+  box-shadow: 2px 2px 0 #171312;
+  transform: translate(3px, 3px);
+}
+
+.pixel-grid {
+  background-image:
+    linear-gradient(rgba(23, 19, 18, 0.08) 2px, transparent 2px),
+    linear-gradient(90deg, rgba(23, 19, 18, 0.08) 2px, transparent 2px);
+  background-size: 24px 24px;
+}
+
+.pixel-ground {
+  background:
+    linear-gradient(45deg, #8b4a25 25%, transparent 25%) 0 0 / 20px 20px,
+    linear-gradient(-45deg, #8b4a25 25%, transparent 25%) 0 10px / 20px 20px,
+    #c86b34;
+}
+
+.crt-scanlines::after {
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.08) 0,
+    rgba(255, 255, 255, 0.08) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
