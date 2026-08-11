@@ -18,24 +18,31 @@ What separates this from a normal fitness app is that **the motivation is narrat
 
 ## 2. ⚠️ Scope: this is a prototype
 
-This section states plainly what is real and what is simulated, so nobody has to guess.
+This section states plainly what is production-grade and what is not, so nobody has to guess.
 
 | Component | Status |
 |---|---|
 | UI / UX / core loop | ✅ **Real** and fully functional |
 | All 3 episode videos | ✅ **Real** — every frame AI-generated |
-| Distance-based unlock rules | ✅ **Real**, but enforced client-side |
-| Strava integration | ⚠️ **Simulated in UI** — no API call is made |
-| Running distance | ⚠️ **Simulated** via `+1 km` and `Sync` buttons |
-| User accounts / database | ❌ **None** — state lives in each browser's `localStorage` |
+| Strava integration | ✅ **Real** — OAuth 2.0 + Activities API |
+| Running distance | ✅ **Real** — pulled from the athlete's own Strava activities |
+| Distance-based unlock rules | ⚠️ **Real**, but enforced client-side |
+| User accounts / database | ❌ **None** — the Strava session lives in an httpOnly cookie, progress in `localStorage` |
 
-### Why Strava is mocked
+### What the Strava integration actually does
 
-**Not because it couldn't be built — because building it would break the demo.**
+`Link Strava` → real OAuth consent screen → `Sync Strava` → `GET /athlete/activities` → foot-sport distance from the **last 30 days** becomes the unlock currency.
 
-Strava caps newly created API applications at **1 athlete** until you apply for a higher limit. Wire it up for real and exactly one person in the room can use the app; everyone else stares at an empty screen.
+Cycling is excluded on purpose: at 3 km to clear the whole series, a bike ride would finish it before the presentation ended.
 
-Simulating the integration in UI means **the entire room can open one link and play simultaneously**, each with their own independent progress. For a presentation, that matters more than a real API call.
+### The two limits that shape the demo
+
+| Limit | Effect |
+|---|---|
+| **New API apps start at 1 athlete** (self-upgradable to 10 in the dashboard, review required beyond that) | The room cannot all connect their own Strava — the presenter connects one account on stage |
+| **Standard-tier API access requires a paid Strava subscription** (since June 2026, ~$11.99/mo) | Access ends when the subscription does |
+
+Both are account-level constraints, not code ones. **The `+1 km` simulation button was removed** once the integration was real — the on-stage demo connects for real, so there is no offline path to unlocking any more.
 
 ---
 
@@ -45,13 +52,15 @@ Simulating the integration in UI means **the entire room can open one link and p
 Next.js (App Router) + TypeScript
 Tailwind CSS
 Framer Motion      ← unlock animations, swipe gate
+Route Handlers     ← app/api/strava/* — OAuth + activity sync
+httpOnly cookie    ← Strava tokens, no database
 localStorage       ← { distanceKm: number }
 Vercel
 ```
 
-**No** backend · database · authentication · environment variables · API routes.
+**No** database · user accounts · webhooks.
 
-> The first version of this proposal was designed around Supabase + Strava OAuth + webhooks + a 5-table schema. All of it was cut once the deliverable was defined as **a UX prototype the whole room can use**, rather than a production system. Every cut and its reasoning is documented in §9.
+> The first version of this proposal was designed around Supabase + Strava OAuth + webhooks + a 5-table schema. OAuth came back; the rest stayed cut. Sync is **polled on a button press** rather than pushed by a webhook — a webhook needs a public HTTPS callback that localhost cannot provide, and buys nothing when a human is standing there pressing Sync. Every cut and its reasoning is documented in §9.
 
 ---
 
@@ -63,12 +72,14 @@ Vercel
 
 | Button | Visual weight | Behaviour |
 |---|---|---|
-| `+1 km` | Largest, top | +1.0 km — unlocks one episode at a time |
-| `Sync from Strava (5.0 km)` | Smaller, below | Sets distance to 5.0 km — unlocks everything |
-| `Reset` | Smallest | Back to 0.0 km |
-| `Connect with Strava` | Top, pre-connection only | Simulated — 1.5s spinner → `Connected ✓` |
+| `Sync Strava` | Largest, top | Pulls real distance from the Strava API and walks the odometer up |
+| `Reset` | Beside Sync | Back to 0.0 km — for re-running the demo |
+| `Link Strava` | Below, pre-connection only | Real OAuth — full-page redirect to Strava's consent screen |
+| `Unlink` | Below, post-connection only | Drops the session so the OAuth flow can be shown live again |
 
-> **Why `+1 km` must outrank `Sync`.** The button that unlocks everything in one click is the button that destroys the game. Give it prominence and people will press it first and never understand what the rules were.
+> **Why `Unlink` exists.** The connect flow is the most convincing thirty seconds of the demo, and it only plays once per browser. Without a way to drop the session on purpose, rehearsing it means clearing cookies by hand between run-throughs.
+
+**Unlocks are staggered by 600 ms.** A sync that clears three episodes at once fires them one at a time — simultaneous unlocks read as a glitch rather than a reward.
 
 **Player** — fullscreen 9:16, swipe up/down between episodes.
 Swiping toward a locked episode **bounces back with `🔒 X.X km to go`**.
@@ -391,30 +402,36 @@ The expensive mistake in this kind of work is not the $7. It is generating all 9
 
 ## 8. 🎤 Demo
 
+**Before you start:** press `Unlink`, then `Reset`. The demo has to begin disconnected at 0.0 km.
+
 ### Act 1 — make them understand the rules
 ```
 Open Home at 0.0 km · Ep.1 unlocked · Ep.2/3 locked
-Press [+1 km] → bar fills → Ep.2 pops open
-Play Ep.2 for 5 seconds → swipe up to Ep.3 → bounce back 🔒
+Play Ep.1 for 5 seconds → swipe up to Ep.2 → bounce back 🔒
+"That wall is the whole product."
 ```
 
 ### Act 2 — make them believe it
 ```
-"Nobody actually runs one kilometre at a time."
-Press [Sync from Strava] → 5.0 km → Ep.3 unlocks
+Press [Link Strava] → real Strava consent screen → Authorize
+Press [Sync Strava] → real distance lands → Ep.2 then Ep.3 unlock, 600 ms apart
 Land on the Season 2 card
-"Scan the QR and try it yourselves."
 ```
 
 **Why two acts:** Act 1 makes them *understand*; Act 2 makes them *believe*. Either one alone is significantly weaker.
 
+> ⚠️ **This demo requires the network.** There is no offline fallback — the `+1 km` button is gone. Record a backup video (plan.md 5.3) and have it open in another tab.
+
 ### Prepared answers
 
 **❓ "Is the Strava integration real?"**
-> It's deliberately mocked. Strava caps new API applications at one athlete, so a real integration would mean only one person in this room could use it. What you're seeing is the same interface the real API would return.
+> Yes — that was Strava's own consent screen, and the distance came from `GET /athlete/activities`. What isn't real is scale: new API apps are capped at one athlete, self-upgradable to ten, so I can't have the whole room connect right now.
 
 **❓ "Could I just copy the video URL and skip ahead?"**
-> Yes. This is a UX prototype — the unlock rules run client-side so everyone here can use it without signing up. In production it's a one-line server-side query issuing a 60-second signed URL. We know exactly where that belongs.
+> Yes. The unlock rules run client-side. In production it's a one-line server-side query issuing a 60-second signed URL. We know exactly where that belongs.
+
+**❓ "What stops someone connecting an account with 3,000 km of history?"**
+> Nothing yet — that's the honest answer. Only the last 30 days count, which blunts it but doesn't fix it. The real fix is anchoring the baseline to the moment they start the series, not to their account history.
 
 **❓ "If I finish the series in one run, why come back?"**
 > *Don't answer — the Season 2 card already did.*
@@ -422,7 +439,7 @@ Land on the Season 2 card
 **❓ "Where is the AI in this project?"**
 > In the entire production pipeline — §6 of this README. Character prompts, using wardrobe as a consistency anchor instead of faces, designing shots to avoid Thai lip-sync, the image-to-video pipeline. **Every frame is AI-generated; nothing was filmed.**
 
-> 💡 **Volunteer the Strava mock before anyone asks.** Waiting to be caught makes a deliberate decision look like an oversight.
+> 💡 **Volunteer the 1-athlete cap before anyone asks.** Waiting to be caught makes a known constraint look like an oversight.
 
 ---
 
@@ -432,19 +449,20 @@ Every item below was fully designed and then deliberately removed — **not skip
 
 | Cut | Reason |
 |---|---|
-| Strava OAuth + webhooks | 1-athlete cap means the room can't play simultaneously — which is the whole point of the demo |
-| Supabase (DB + Auth + Storage) | With no users to store, there was nothing left to store |
+| Strava **webhooks** | Needs a public HTTPS callback localhost can't provide. Polling on a button press is what a demo actually needs — **OAuth itself was reinstated, see §2** |
+| Supabase (DB + Auth + Storage) | With no users to store, there was nothing left to store — the Strava session fits in one httpOnly cookie |
 | `activities` table + idempotency | Designed to survive duplicate webhook deliveries — no webhooks, nothing to survive |
 | Signed URLs protecting the videos | Requires server-side state, which conflicts with having no users — **we accept the lock is decorative** |
 | Badge / puzzle-piece reward system | A second reward system stacked on the first; it didn't improve the core loop |
 | A reusable video-generation skill | Three episodes are faster by hand than building the tool — the knowledge lives in §6 instead |
+| The `+1 km` simulation button | Redundant once the API was live — but it was also the only offline fallback, so the backup demo video is now mandatory |
 
 ### Production roadmap
 
 If this were taken further, in priority order:
 
-1. **Strava OAuth + an `activities` table** with `UNIQUE(strava_activity_id)` — idempotency comes free from the database constraint, with no dedup logic to write
-2. **Anchor the distance baseline to the series, not the account** — otherwise a runner with 3,000 km of history unlocks the entire series the instant they connect
+1. **Anchor the distance baseline to the series, not the account** — the 30-day window blunts this but a regular runner still unlocks everything on first connect. This is the biggest correctness gap in the current build
+2. **An `activities` table** with `UNIQUE(strava_activity_id)` — idempotency comes free from the database constraint, with no dedup logic to write
 3. **Supabase Storage + signed URLs** to make the lock real
 4. **Push notifications** — the one place where webhooks genuinely earn their keep (notify the moment they hit Save in Strava)
 5. **Weekly series releases** — retention comes from content cadence, not from withholding distance
@@ -455,18 +473,43 @@ If this were taken further, in priority order:
 
 ```bash
 npm install
+cp .env.example .env.local     # then fill in the two Strava values
 npm run dev
 # http://localhost:3000
 ```
 
-No environment variables required.
+### Strava credentials
+
+Create an app at **strava.com/settings/api**, then put the ID and secret in `.env.local`.
+
+| Field | Value | Matters? |
+|---|---|---|
+| Authorization Callback Domain | `localhost` — bare, no scheme, no port, no path | ✅ **wrong here and OAuth fails immediately** |
+| Website | anything | ❌ cosmetic |
+| Icon | anything square | required by the form only |
+
+**Restart the dev server after editing `.env.local`** — Next does not hot-reload environment variables. Confirm with:
+
+```bash
+curl -s localhost:3000/api/strava/status   # expect "configured":true
+```
+
+> **Callback Domain accepts exactly one domain.** Keep a second Strava app for the deployed domain rather than editing this one back and forth. Vercel *preview* deployments get random URLs and will always fail `redirect_uri` — test on the production URL.
+
+### Layout
 
 ```
-public/videos/ep1.mp4    ← Episode 1 (free)
-public/videos/ep2.mp4    ← unlocks at 1.0 km
-public/videos/ep3.mp4    ← unlocks at 2.0 km
-lib/episodes.ts          ← metadata + thresholds
-lib/progress.ts          ← localStorage
+app/api/strava/auth       ← redirect to consent, mint CSRF state
+app/api/strava/callback   ← verify state + scope, store session cookie
+app/api/strava/sync       ← refresh token if stale, sum last 30 days
+app/api/strava/status     ← is a session present?
+app/api/strava/disconnect ← drop the session (the Unlink button)
+lib/strava.ts             ← token exchange, refresh, activity fetch
+lib/episodes.ts           ← metadata + thresholds
+lib/progress.ts           ← localStorage
+public/videos/ep1..3.mp4  ← unlock at 0.0 / 1.0 / 2.0 km
 ```
 
 **Reset progress:** press `Reset` in the app, or run `localStorage.clear()` in the console.
+
+่james -husky

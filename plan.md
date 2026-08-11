@@ -13,8 +13,8 @@
   - ✅ 2.2 `lib/episodes.ts` — done
   - ✅ 2.3 `lib/progress.ts` — done
   - ✅ 2.4 Home screen (treasure path, pins, runner marker) — done
-  - ✅ 2.5 Buttons (`+1 km` / `Sync` / `Reset`) — done
-  - ✅ 2.6 Fake `Connect with Strava` flow — done
+  - ✅ 2.5 Buttons (`+1 km` / `Sync` / `Reset`) — done, then replaced in Phase 6
+  - ✅ 2.6 Fake `Connect with Strava` flow — done, then replaced in Phase 6
   - ✅ 2.7 Player screen (fullscreen 9:16, swipe) — done
   - ✅ 2.8 Lock gate bounce-back — done
   - ✅ 2.9 Permanently-locked Ep.4 card — done
@@ -26,8 +26,16 @@
   - ✅ 4.2 `<video preload="none">` is in place
   - ✅ 4.3 600 ms stagger when `Sync` unlocks multiple episodes at once
   - ✅ 4.4 Unlock animation + haptic feedback (`navigator.vibrate`)
-  - ⬜ 4.5 Real-phone playback test
-- **Phase 5 — Demo Prep:** ⬜ Not started.
+  - ✅ 4.6 Episodes play with sound, with a muted fallback for iOS
+  - ⬜ 4.5 Real-phone playback test — **also the only way to verify the sound fallback**
+- **Phase 5 — Demo Prep:** ⬜ Not started. **5.3 (backup video) is now mandatory, not optional** — see Phase 6.
+- **Phase 6 — Real Strava Integration:** ✅ Complete. Replaced the simulated flow with live OAuth 2.0 + Activities API.
+  - ✅ 6.1 `lib/strava.ts` — token exchange, refresh, activity fetch
+  - ✅ 6.2 Five route handlers under `app/api/strava/`
+  - ✅ 6.3 Tokens in an httpOnly cookie — no database
+  - ✅ 6.4 `Unlink` button so the OAuth flow can be re-demoed on stage
+  - ✅ 6.5 **Removed the `+1 km` button** — the demo now connects for real
+  - ⬜ 6.6 Deploy to Vercel with a second Strava app for the production domain
 
 ## Principles behind this plan
 
@@ -98,8 +106,8 @@ npm i framer-motion lucide-react
 | 2.2 | `lib/episodes.ts` — metadata + thresholds `[0, 1.0, 2.0]` as constants |
 | 2.3 | `lib/progress.ts` — read/write `localStorage: { distanceKm }` + hook |
 | 2.4 | **Home** screen — vertical SVG treasure path, 3 pins, runner marker that advances with distance |
-| 2.5 | Buttons: `+1 km` (large, top) · `Sync from Strava (5.0 km)` (small, below) · `Reset` |
-| 2.6 | Fake `Connect with Strava` button — **1.5s spinner** → `Connected ✓` |
+| 2.5 | Buttons: `+1 km` (large, top) · `Sync from Strava (5.0 km)` (small, below) · `Reset` — *superseded by Phase 6* |
+| 2.6 | Fake `Connect with Strava` button — **1.5s spinner** → `Connected ✓` — *superseded by Phase 6* |
 | 2.7 | **Player** screen — fullscreen 9:16, swipe up/down |
 | 2.8 | **Lock gate** — swiping to a locked episode bounces back with `🔒 X.X km to go` |
 | 2.9 | Permanently-locked **Ep.4 card** — `Season 2 · 3.0 km to go` |
@@ -151,21 +159,24 @@ npm i framer-motion lucide-react
 
 ### Demo script
 
+**Setup — press `Unlink` then `Reset` before you begin.**
+
 **Act 1 — make them understand the rules**
 ```
 Open Home at 0.0 km · Ep.1 unlocked · Ep.2/3 locked
-Press [+1 km] → bar fills → Ep.2 pops open
-Play Ep.2 for 5 seconds → swipe up to Ep.3 → bounce back 🔒
+Play Ep.1 for 5 seconds → swipe up to Ep.2 → bounce back 🔒
+"That wall is the whole product."
 ```
 
 **Act 2 — make them believe it**
 ```
-"Nobody actually runs one kilometre at a time."
-Press [Sync from Strava] → 5.0 km lands
-→ Ep.3 unlocks (staggered)
+Press [Link Strava] → real Strava consent screen → Authorize
+Press [Sync Strava] → real distance lands
+→ Ep.2 then Ep.3 unlock, 600 ms apart
 → Land on the Season 2 card
-"Scan the QR and try it yourselves."
 ```
+
+> ⚠️ **No offline fallback exists any more.** The `+1 km` button is gone, so a dead network kills the live demo outright. Have the backup video (5.3) open in another tab.
 
 ---
 
@@ -187,11 +198,13 @@ Press [Sync from Strava] → 5.0 km lands
 
 ## Definition of Done
 
-- [ ] A stranger opens the URL on their phone and it just works — no login
-- [ ] Pressing `+1 km` twice unlocks all three episodes
+- [x] Linking a real Strava account and pressing `Sync` unlocks episodes from real activity distance
+- [x] `Unlink` returns the app to a disconnected state so the OAuth flow can be re-demoed
 - [ ] Swiping to a locked episode bounces back with a message
+- [ ] Episodes play with sound on the presentation machine
 - [ ] All 3 videos have Thai VO + English subtitles, and the characters read as the same individuals
 - [ ] The experience ends on the Season 2 card
-- [ ] 40 devices can open it at once without choking
+- [ ] **A backup demo video exists** — mandatory now that no offline fallback remains
 - [x] README fully documents the AI production pipeline
-- [ ] A backup demo video exists
+
+**Retired:** *"A stranger opens the URL and it just works — no login"* and *"40 devices at once"*. Strava caps the app at 1 athlete (10 after self-upgrade), so a room-wide try-it-yourself is no longer possible. The demo is presenter-driven by design — see README §2.

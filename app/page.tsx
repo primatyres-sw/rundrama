@@ -7,7 +7,6 @@ import {
   ChevronUp,
   Lock,
   Play,
-  Plus,
   RefreshCw,
   RotateCcw,
   Volume2,
@@ -89,32 +88,6 @@ export default function Home() {
     [scheduleTimeout],
   );
 
-  const setDistanceWithUnlockFeedback = useCallback(
-    (nextDistanceKm: number) => {
-      const previousUnlockedCount = unlockedCount;
-      const nextUnlockedCount = EPISODES.filter((episode) =>
-        isEpisodeUnlocked(nextDistanceKm, episode),
-      ).length;
-
-      setDistanceKm(nextDistanceKm);
-      EPISODES.slice(previousUnlockedCount, nextUnlockedCount).forEach((episode) => {
-        celebrateEpisodeUnlock(episode.id);
-      });
-    },
-    [celebrateEpisodeUnlock, setDistanceKm, unlockedCount],
-  );
-
-  const connectStrava = useCallback(() => {
-    if (connectionState !== "idle") {
-      return;
-    }
-
-    setConnectionState("connecting");
-    // Full-page navigation, not fetch — Strava's consent screen has to render
-    // in the top-level window for the athlete to approve it.
-    window.location.href = "/api/strava/auth";
-  }, [connectionState]);
-
   /** Stage reset: drops the session so the OAuth flow can be shown live. */
   const disconnectStrava = useCallback(async () => {
     await fetch("/api/strava/disconnect", { cache: "no-store", method: "POST" }).catch(
@@ -125,10 +98,6 @@ export default function Home() {
     setStravaMessage("Strava unlinked - ready to demo the connect flow");
     setStravaMessageIsError(false);
   }, []);
-
-  const addOneKm = useCallback(() => {
-    setDistanceWithUnlockFeedback(distanceKm + 1);
-  }, [distanceKm, setDistanceWithUnlockFeedback]);
 
   /** Walks the odometer up to `targetKm`, popping each episode open on the way. */
   const runUnlockSequence = useCallback(
@@ -267,35 +236,33 @@ export default function Home() {
 
     const params = new URLSearchParams(window.location.search);
     const outcome = params.get("strava");
-
-    if (outcome === "connected") {
-      setStravaMessage("Strava linked - press Sync");
-      setStravaMessageIsError(false);
-    }
-
-    if (outcome === "error") {
-      setStravaMessage(params.get("reason") ?? "Could not link Strava");
-      setStravaMessageIsError(true);
-    }
+    const reason = params.get("reason");
 
     if (outcome) {
       window.history.replaceState({}, "", window.location.pathname);
     }
 
-    let cancelled = false;
+    // Reported once the connection state is known, so the banner and the button
+    // never disagree for a frame.
+    const reportOutcome = () => {
+      if (outcome === "connected") {
+        setStravaMessage("Strava linked - press Sync");
+        setStravaMessageIsError(false);
+      }
+
+      if (outcome === "error") {
+        setStravaMessage(reason ?? "Could not link Strava");
+        setStravaMessageIsError(true);
+      }
+    };
 
     fetch("/api/strava/status", { cache: "no-store" })
       .then((response) => response.json())
       .then((data: { connected?: boolean }) => {
-        if (!cancelled) {
-          setConnectionState(data.connected ? "connected" : "idle");
-        }
+        setConnectionState(data.connected ? "connected" : "idle");
+        reportOutcome();
       })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-    };
+      .catch(reportOutcome);
   }, []);
 
   useEffect(() => {
@@ -364,32 +331,23 @@ export default function Home() {
               </div>
             </header>
 
-            <button
-              className="pixel-button relative z-10 mt-5 flex h-16 w-full items-center justify-center gap-2 bg-[#ff5a3d] px-4 text-xl font-black uppercase text-white"
-              onClick={addOneKm}
-              type="button"
-            >
-              <Plus className="h-5 w-5" />
-              Run +1 KM
-            </button>
-
-            <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+            <div className="relative z-10 mt-5 grid grid-cols-[1fr_auto] gap-2">
               <button
-                className="pixel-button flex h-12 items-center justify-center gap-2 bg-[#3860d8] px-3 text-xs font-black uppercase text-white disabled:opacity-75"
+                className="pixel-button flex h-16 items-center justify-center gap-2 bg-[#ff5a3d] px-4 text-xl font-black uppercase text-white disabled:opacity-75"
                 disabled={syncInProgress}
                 onClick={syncFromStrava}
                 type="button"
               >
-                <RefreshCw className={`h-4 w-4 ${syncInProgress ? "animate-spin" : ""}`} />
+                <RefreshCw className={`h-5 w-5 ${syncInProgress ? "animate-spin" : ""}`} />
                 {syncInProgress ? "Syncing..." : "Sync Strava"}
               </button>
               <button
                 aria-label="Reset progress"
-                className="pixel-button flex h-12 w-12 items-center justify-center bg-white text-[#171312]"
+                className="pixel-button flex h-16 w-16 items-center justify-center bg-white text-[#171312]"
                 onClick={resetProgress}
                 type="button"
               >
-                <RotateCcw className="h-4 w-4" />
+                <RotateCcw className="h-5 w-5" />
               </button>
             </div>
 
@@ -408,20 +366,23 @@ export default function Home() {
                   Unlink
                 </button>
               </div>
+            ) : connectionState === "connecting" ? (
+              <span className="pixel-panel mt-3 flex h-11 w-full items-center justify-center gap-2 bg-[#4fc35b] px-3 text-xs font-black uppercase text-white opacity-80">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                Connecting...
+              </span>
             ) : (
-              <button
-                className="pixel-button mt-3 flex h-11 w-full items-center justify-center gap-2 bg-[#4fc35b] px-3 text-xs font-black uppercase text-white disabled:opacity-80"
-                disabled={connectionState === "connecting"}
-                onClick={connectStrava}
-                type="button"
+              // A real anchor, not a router push: /api/strava/auth answers with a
+              // redirect to Strava's own domain, which the client router cannot
+              // follow. The consent screen also has to own the top-level window.
+              <a
+                className="pixel-button mt-3 flex h-11 w-full items-center justify-center gap-2 bg-[#4fc35b] px-3 text-xs font-black uppercase text-white"
+                href="/api/strava/auth"
+                onClick={() => setConnectionState("connecting")}
               >
-                {connectionState === "connecting" ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Wifi className="h-4 w-4" />
-                )}
-                {connectionState === "connecting" ? "Connecting..." : "Link Strava"}
-              </button>
+                <Wifi className="h-4 w-4" />
+                Link Strava
+              </a>
             )}
 
             {stravaMessage ? (
