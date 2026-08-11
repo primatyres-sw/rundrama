@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { buildAuthorizeUrl, writeOAuthState } from "@/lib/strava";
+import { buildAuthorizeUrl, ensureOAuthState } from "@/lib/strava";
 
 export const dynamic = "force-dynamic";
 
@@ -7,8 +7,7 @@ export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
 
   try {
-    const state = crypto.randomUUID();
-    await writeOAuthState(state);
+    const state = await ensureOAuthState();
 
     return NextResponse.redirect(buildAuthorizeUrl(requestUrl, state));
   } catch (error) {

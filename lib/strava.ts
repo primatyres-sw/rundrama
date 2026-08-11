@@ -119,14 +119,31 @@ export async function clearSession() {
   (await cookies()).delete(SESSION_COOKIE);
 }
 
-export async function writeOAuthState(state: string) {
-  (await cookies()).set(STATE_COOKIE, state, {
+/**
+ * Reuses a state that is already in flight instead of rotating it on every
+ * click. Rotating would silently invalidate a consent screen the athlete
+ * already has open — which is exactly what double-clicking "Link Strava"
+ * produces, and it fails only at the very end of the flow.
+ */
+export async function ensureOAuthState() {
+  const cookieStore = await cookies();
+  const existing = cookieStore.get(STATE_COOKIE)?.value;
+
+  if (existing) {
+    return existing;
+  }
+
+  const state = crypto.randomUUID();
+
+  cookieStore.set(STATE_COOKIE, state, {
     httpOnly: true,
     maxAge: 60 * 10,
     path: "/",
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
   });
+
+  return state;
 }
 
 /** Reads the CSRF state and burns it, so a callback can never be replayed. */

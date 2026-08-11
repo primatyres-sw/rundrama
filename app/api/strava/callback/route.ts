@@ -27,7 +27,7 @@ export async function GET(request: Request) {
 
   const expectedState = await consumeOAuthState();
   if (!expectedState || expectedState !== requestUrl.searchParams.get("state")) {
-    return fail("State mismatch — start the connection again from the app");
+    return fail("Link expired - press Link Strava again and finish in one go");
   }
 
   // Without activity:read_all the sync would silently return 0 km, so refuse
