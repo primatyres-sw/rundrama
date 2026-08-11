@@ -27,11 +27,18 @@ const PATH_POINTS = [
   { x: 62, y: 41 },
   { x: 42, y: 58 },
 ] as const;
-const SYNC_DISTANCE_KM = 5;
 const UNLOCK_STAGGER_MS = 600;
 
 type Screen = "home" | "player";
 type ConnectionState = "idle" | "connecting" | "connected";
+
+type SyncResponse = {
+  activityCount?: number;
+  athleteName?: string | null;
+  distanceKm?: number;
+  error?: string;
+  latestActivityName?: string | null;
+};
 
 export default function Home() {
   const { distanceKm, isLoaded, reset, setDistanceKm } = useProgress();
@@ -41,6 +48,8 @@ export default function Home() {
   const [celebratingEpisodeIds, setCelebratingEpisodeIds] = useState<number[]>([]);
   const [gateMessage, setGateMessage] = useState("");
   const [syncInProgress, setSyncInProgress] = useState(false);
+  const [stravaMessage, setStravaMessage] = useState("");
+  const [stravaMessageIsError, setStravaMessageIsError] = useState(false);
   const scheduledTimeouts = useRef<number[]>([]);
 
   const unlockedCount = useMemo(
@@ -98,52 +107,87 @@ export default function Home() {
     }
 
     setConnectionState("connecting");
-    window.setTimeout(() => setConnectionState("connected"), 1500);
+    // Full-page navigation, not fetch — Strava's consent screen has to render
+    // in the top-level window for the athlete to approve it.
+    window.location.href = "/api/strava/auth";
   }, [connectionState]);
 
   const addOneKm = useCallback(() => {
     setDistanceWithUnlockFeedback(distanceKm + 1);
   }, [distanceKm, setDistanceWithUnlockFeedback]);
 
-  const syncFromStrava = useCallback(() => {
+  /** Walks the odometer up to `targetKm`, popping each episode open on the way. */
+  const runUnlockSequence = useCallback(
+    (targetKm: number) => {
+      clearScheduledTimeouts();
+      setCelebratingEpisodeIds([]);
+
+      const unlockSteps = EPISODES.filter(
+        (episode) => episode.thresholdKm > distanceKm && episode.thresholdKm <= targetKm,
+      );
+
+      if (unlockSteps.length === 0) {
+        setDistanceKm(targetKm);
+        return 0;
+      }
+
+      unlockSteps.forEach((episode, index) => {
+        scheduleTimeout(() => {
+          setDistanceKm(episode.thresholdKm);
+          celebrateEpisodeUnlock(episode.id);
+        }, (index + 1) * UNLOCK_STAGGER_MS);
+      });
+
+      const totalDurationMs = (unlockSteps.length + 1) * UNLOCK_STAGGER_MS;
+      scheduleTimeout(() => setDistanceKm(targetKm), totalDurationMs);
+
+      return totalDurationMs;
+    },
+    [celebrateEpisodeUnlock, clearScheduledTimeouts, distanceKm, scheduleTimeout, setDistanceKm],
+  );
+
+  const syncFromStrava = useCallback(async () => {
     if (syncInProgress) {
       return;
     }
 
-    clearScheduledTimeouts();
-    setCelebratingEpisodeIds([]);
-    setConnectionState("connected");
     setSyncInProgress(true);
+    setStravaMessage("");
+    setStravaMessageIsError(false);
 
-    const unlockSteps = EPISODES.filter(
-      (episode) => episode.thresholdKm > distanceKm && episode.thresholdKm <= SYNC_DISTANCE_KM,
-    );
+    try {
+      const response = await fetch("/api/strava/sync", { cache: "no-store" });
+      const data = (await response.json()) as SyncResponse;
 
-    if (unlockSteps.length === 0) {
-      setDistanceKm(SYNC_DISTANCE_KM);
+      if (!response.ok) {
+        if (response.status === 401) {
+          setConnectionState("idle");
+        }
+
+        setStravaMessage(data.error ?? "Sync failed");
+        setStravaMessageIsError(true);
+        setSyncInProgress(false);
+        return;
+      }
+
+      setConnectionState("connected");
+
+      const distanceFromStrava = data.distanceKm ?? 0;
+      const sequenceDurationMs = runUnlockSequence(distanceFromStrava);
+
+      setStravaMessage(
+        data.activityCount
+          ? `${data.activityCount} activities · ${distanceFromStrava.toFixed(1)} km`
+          : "No runs found in the last 30 days",
+      );
+      setStravaMessageIsError(false);
+      scheduleTimeout(() => setSyncInProgress(false), sequenceDurationMs);
+    } catch {
+      setStravaMessage("Network error — is the dev server still running?");
+      setStravaMessageIsError(true);
       setSyncInProgress(false);
-      return;
     }
-
-    unlockSteps.forEach((episode, index) => {
-      scheduleTimeout(() => {
-        setDistanceKm(episode.thresholdKm);
-        celebrateEpisodeUnlock(episode.id);
-      }, (index + 1) * UNLOCK_STAGGER_MS);
-    });
-
-    scheduleTimeout(() => {
-      setDistanceKm(SYNC_DISTANCE_KM);
-      setSyncInProgress(false);
-    }, (unlockSteps.length + 1) * UNLOCK_STAGGER_MS);
-  }, [
-    celebrateEpisodeUnlock,
-    clearScheduledTimeouts,
-    distanceKm,
-    scheduleTimeout,
-    setDistanceKm,
-    syncInProgress,
-  ]);
+  }, [runUnlockSequence, scheduleTimeout, syncInProgress]);
 
   const resetProgress = useCallback(() => {
     clearScheduledTimeouts();
@@ -193,6 +237,42 @@ export default function Home() {
     },
     [clampedActiveIndex, distanceKm, showGate],
   );
+
+  // On load: surface the result of the OAuth redirect, then ask the server
+  // whether a Strava session cookie is already in place.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const outcome = params.get("strava");
+
+    if (outcome === "connected") {
+      setStravaMessage("Strava linked - press Sync");
+      setStravaMessageIsError(false);
+    }
+
+    if (outcome === "error") {
+      setStravaMessage(params.get("reason") ?? "Could not link Strava");
+      setStravaMessageIsError(true);
+    }
+
+    if (outcome) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    let cancelled = false;
+
+    fetch("/api/strava/status", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { connected?: boolean }) => {
+        if (!cancelled) {
+          setConnectionState(data.connected ? "connected" : "idle");
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -277,7 +357,7 @@ export default function Home() {
                 type="button"
               >
                 <RefreshCw className={`h-4 w-4 ${syncInProgress ? "animate-spin" : ""}`} />
-                {syncInProgress ? "Loading..." : "Strava Warp 5KM"}
+                {syncInProgress ? "Syncing..." : "Sync Strava"}
               </button>
               <button
                 aria-label="Reset progress"
@@ -308,6 +388,16 @@ export default function Home() {
                   ? "Linked ✓"
                   : "Link Strava"}
             </button>
+
+            {stravaMessage ? (
+              <p
+                className={`pixel-panel mt-2 px-3 py-2 text-[10px] font-black uppercase leading-snug ${
+                  stravaMessageIsError ? "bg-[#ff5a3d] text-white" : "bg-white text-[#171312]"
+                }`}
+              >
+                {stravaMessage}
+              </p>
+            ) : null}
 
             <section className="pixel-panel pixel-grid relative z-10 mt-5 min-h-[530px] flex-1 overflow-hidden bg-[#8ee7ff]">
               <TreasurePath celebratingEpisodeIds={celebratingEpisodeIds} distanceKm={distanceKm} />
